@@ -254,6 +254,9 @@ body {
   /* ---- mod: config-driven cheats applied to the save (load, save and boot) ---- */
   var CARS=['3000','350','911','bug','chiron','civic','countach','evo','f20','f40','f60','fla','gt','gtr','lamba','nsx','s14','s15','s2000','supra','tri','viper','wrx'];
   var COLS=[0,1,2,3,4,5,6,7,8];
+  /* The game locks up (DOTween spawns millions of tweens on the main menu) when the crown count in the save is huge,
+     so crowns are never allowed above CROWN_MAX - neither by the cheats nor when loading an already-bad save. */
+  var CROWN_MAX=2000;
   var STATKEYS=['_raceCount','_battleFinishCount','_parkourFinishCount','_autoballFinishCount','_trainFinishCount','_crownCount','_starCount','_goalCount','_trainPointCount'];
   var DEF={money:true,stats:true,cars:true,colors:true,levels:true,lock:true,amount:999999999,statAmount:999999,name:'',car:'',god:false,fly:false,noko:false,freeze:false,spd:1,jmp:1,grv:1,jet:1,bst:1,dpr:0,vol:1,accent:0,opacity:96,fps:false};
   var MOD={cfg:{}};
@@ -291,13 +294,31 @@ body {
       S.money=amt;
     }
     if(c.stats)STATKEYS.forEach(function(k){P[k]=sta;});
+    if(P._crownCount>CROWN_MAX)P._crownCount=CROWN_MAX;
     if(c.name)P._playerName=String(c.name).slice(0,24);
     if(c.car&&CARS.indexOf(c.car)>=0){P._carViewId=c.car;if(!Array.isArray(P.claimedCars))P.claimedCars=[];var hc=false;P.claimedCars.forEach(function(x){if(x&&x.carViewId===c.car)hc=true;});if(!hc)P.claimedCars.push({carViewId:c.car,carColorNames:[0],lastUsedCarColorName:0});}
     S.playerData=JSON.stringify(P);
     if(c.levels){var n=Array.isArray(S.openLevels)&&S.openLevels.length?S.openLevels.length:3;S.openLevels=[];for(var i=0;i<n;i++)S.openLevels.push(true);}
     return S;
   }
+  /* returns true when it had to lower an out-of-range crown count in save S */
+  function clampCrowns(S){
+    try{var P=pj(S&&S.playerData);if(P&&typeof P==='object'&&P._crownCount>CROWN_MAX){P._crownCount=CROWN_MAX;S.playerData=JSON.stringify(P);return true;}}catch(e){}
+    return false;
+  }
+  /* repair saves already stored in the browser (runs before the game boots, whatever the cheat toggles are) */
+  function sanitizeStored(){
+    try{
+      var l=null;try{l=window.localStorage.getItem('savesData');}catch(e){}
+      if(l){var S=pj(l);if(S&&typeof S==='object'&&clampCrowns(S)){try{window.localStorage.setItem('savesData',JSON.stringify(S));}catch(e){}}}
+      var dd=load('rs_ys_data');
+      if(dd&&Array.isArray(dd.saves)){var ch=false;
+        dd.saves=dd.saves.map(function(x){var S2=pj(x);if(S2&&typeof S2==='object'&&clampCrowns(S2)){ch=true;return JSON.stringify(S2);}return x;});
+        if(ch)save('rs_ys_data',dd);}
+    }catch(e){console.error('sanitize failed',e);}
+  }
   function fixData(d){
+    try{if(d&&Array.isArray(d.saves)){d=Object.assign({},d);d.saves=d.saves.map(function(x){var S=pj(x);if(S&&typeof S==='object'&&clampCrowns(S))return JSON.stringify(S);return x;});}}catch(e){}
     if(!MOD.cfg.lock||!anyOn())return d;
     try{if(d&&Array.isArray(d.saves)){d=Object.assign({},d);d.saves=d.saves.map(function(s){var S=pj(s);if(!S||typeof S!=='object')return s;return JSON.stringify(applyCheats(S));});}}catch(e){console.error(e);}
     return d;
@@ -353,6 +374,7 @@ body {
   };
   MOD.CARS=CARS;
   window.__RSMOD=MOD;
+  sanitizeStored();
   unlockAll();
   window.YaGames={init:function(){return Promise.resolve(ysdk);}};
   /* analytics stand-ins used by the game page */
